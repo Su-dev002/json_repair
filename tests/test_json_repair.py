@@ -1,4 +1,4 @@
-from src.json_repair.json_repair import from_file, repair_json, loads
+from src.json_repair.json_repair import from_file, repair_json, loads, validate_json
 
 def test_basic_types_valid():
     assert repair_json("True", return_objects=True) == ""
@@ -249,3 +249,408 @@ def test_repair_json_from_file():
     finally:
         # Clean up - delete the temporary file
         os.remove(temp_path)
+
+
+definition1 = '''[
+      {
+        "name": "save_information_on_sector",
+        "parameters": {
+          "type": "object",
+          "properties": {
+              "key1": {
+                  "type": "string",
+                  "description": "key1"
+              },
+              "key2": {
+                  "type": "string",
+                  "description": "key2"
+              },
+              "key3": {
+                  "type": "string",
+                  "description": "key3"
+              },
+              "key4": {
+                  "type": "array",
+                  "items": {
+                      "type": "string",
+                      "description": "key4 values"
+                  },
+                  "description": "key4"
+              }
+          }
+        },
+        "description": "Save information of sector."
+      }
+    ]'''
+
+definition1_testcase1 =  '''{
+    'key1': 'value1',
+    'key2': 'value2'
+    'key3': "value3",
+    'key4': "value4"+"value5"
+}'''
+
+definition1_corrected1 = {
+    'key1': 'value1',
+    'key2': 'value2',
+    'key3': 'value3',
+    'key4': ['value4', 'value5']
+}
+
+definition2 = '''[
+      {
+        "name": "save_information_on_sector",
+        "parameters": {
+          "type": "object",
+          "properties": {
+              "name": {
+                  "type": "string",
+                  "description": "name"
+              },
+              "age": {
+                  "type": "integer",
+                  "description": "age"
+              },
+              "is_student": {
+                  "type": "string",
+                  "description": "is_student"
+              },
+              "hobbies": {
+                  "type": "array",
+                  "items": {
+                      "type": "string",
+                      "description": "hobbies"
+                  },
+                  "description": "hobbies"
+              },
+              "bio": {
+                  "type": "array",
+                  "items": {
+                      "type": "string",
+                      "description": "bio"
+                  },
+                  "description": "bio"
+              }
+          }
+        },
+        "description": "Save information of sector."
+      }
+    ]'''
+
+definition2_testcase1 = '''{
+    name: 'Mike',
+    age: 29,
+    is_student: 'false',
+    bio: 'Loves to read' 'play guitar',
+    hobbies: ['Reading', 'Playing guitar', 'Swimming'
+}'''
+
+definition2_corrected1 = {
+    "name": "Mike",
+    "age": 29,
+    "is_student": "false",
+    "bio": ["Loves to read", "play guitar"],
+    "hobbies": ["Reading", "Playing guitar", "Swimming"]
+}
+
+definition2_testcase2 = '''{
+    name: 'Robert',
+    age: "10",
+    is_student: True,
+    hobbies: ['Running' 'Swimming', 'Reading']
+    bio: 'A passionate runner' 'avid reader'
+'''
+definition2_corrected2 = {
+    "name": "Robert",
+    "age": 10,
+    "is_student": "True",
+    "bio": ["A passionate runner", "avid reader"],
+    "hobbies": ["Running", "Swimming", "Reading"]
+}
+
+
+
+definition3 = '''[
+      {
+        "name": "save_information_on_sector",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "OUTPUT": {
+              "type": "object",
+              "properties": {
+                "PARAGRAPHS": {
+                  "type": "array",
+                  "items": { "type": "string", "description": "paragraphs" },
+                  "description": "list of paragraphs"
+                },
+                "INFORMATION_AVAILABLE": {
+                  "enum": ["0", "1"],
+                  "type": "string",
+                  "description": "value in 1 and 0"
+                },
+                "ENUM_NUMBER":{
+                    "enum": [100, 200, 300],
+                    "type": "integer",
+                    "description": "value in 100, 200, 300, fake property for testcase definition "
+                },
+                "COMPANY_STATS": {
+                  "type": "array",
+                  "items": { "type": "integer", "description": "company stats" },
+                  "description": "fake property for testcase definition"
+                },
+                "COMPANY_LIST": {
+                  "type": "array",
+                  "items": {
+                      "type": "array",
+                      "items": { "type": "string", "description": "client name" },
+                      "description": "company clients"
+                      },
+                  "description": "list of top 5 related company, fake property for testcase definition"
+                },
+                "COMPANY_NAME": {
+                  "type": "array",
+                  "items": {
+                      "type": "object",
+                      "properties": {
+                          "NAME": { "type": "string", "description": "company name" },
+                          "about": { "type": "string", "description": "company description" }
+                      },
+                      "description": "company name" },
+                  "description": "company name, fake property for testcase definition"
+                }
+
+              }
+            }
+          }
+        },
+        "description": "Save information of sector."
+      }
+    ]'''
+
+
+
+# Test Case 1: Correct JSON
+definition3_testcase1 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}'''
+definition3_corrected1 = eval(definition3_testcase1)  # Already correct
+
+# Test Case 2: Incorrect JSON - wrong type
+definition3_testcase2 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": "Paragraph 1",  // should be an array
+        "INFORMATION_AVAILABLE": 1,  # should be a string
+        "ENUM_NUMBER": 400,  # invalid enum value
+        "COMPANY_STATS": [1, "2", 3],  # mixed types in array
+        "COMPANY_LIST": [["Client 1"], [2]],  # mixed types in array
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": 1}, {"NAME": "Company 2", "about": "Description 2"}]  # wrong type
+    }
+}'''
+definition3_corrected2= {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 400,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"],  ["2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}
+
+# Test Case 3: Incorrect JSON - missing properties
+definition3_testcase3 = '''{
+    "OUTPUT": {
+        "INFORMATION_AVAILABLE": "0",
+        "ENUM_NUMBER": 200
+    }
+}'''
+definition3_corrected3 = {
+    "OUTPUT": {
+        "INFORMATION_AVAILABLE": "0",
+        "ENUM_NUMBER": 200,
+        "PARAGRAPHS": [],
+        "COMPANY_STATS": [],
+        "COMPANY_LIST": [],
+        "COMPANY_NAME": []
+    }
+}
+
+# Test Case 4: Incorrect JSON - extra properties
+definition3_testcase4 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": [100],
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}],
+        "EXTRA_PROPERTY": "extra value"  # not defined in the schema
+    }
+}'''
+definition3_corrected4 = {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}
+
+
+# Test Case 5: Incorrect JSON - invalid syntax
+definition3_testcase5 = '''
+{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"]
+        "INFORMATION_AVAILABLE": "1"
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}
+'''
+definition3_corrected5 = {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}
+
+
+
+# Test Case 6: Incorrect JSON - wrong data types and missing commas
+
+definition3_testcase6 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", 2],
+        "INFORMATION_AVAILABLE": 0,
+        "ENUM_NUMBER": "300",
+        "COMPANY_STATS": [1, 2, "3"]
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": 2, "about": "Description 2"}]
+    }
+}
+'''
+definition3_corrected6 = {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "2"],
+        "INFORMATION_AVAILABLE": "0",
+        "ENUM_NUMBER": 300,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "2", "about": "Description 2"} ]
+    }
+}
+
+# Test Case 7: Incorrect JSON - missing OUTPUT object
+definition3_testcase7 = '''{
+    "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+    "INFORMATION_AVAILABLE": "1",
+    "ENUM_NUMBER": 100,
+    "COMPANY_STATS": [1, 2, 3],
+    "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+    "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+}'''
+definition3_corrected7 = {"OUTPUT": {}}
+
+# Test Case 8: Incorrect JSON - additional nested object
+definition3_testcase8 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"], 3],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}],
+        "EXTRA_OBJECT": {"EXTRA_FIELD": "extra value"}
+    }
+}'''
+definition3_corrected8 = {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"], ["3"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": "Description 2"}]
+    }
+}
+
+# Test Case 9: Incorrect JSON - empty array properties
+definition3_testcase9 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": [],
+        "INFORMATION_AVAILABLE": "0",
+        "ENUM_NUMBER": 200,
+        "COMPANY_STATS": [],
+        "COMPANY_LIST": [],
+        "COMPANY_NAME": []
+    }
+}'''
+definition3_corrected9 = eval(definition3_testcase9)  # Already correct
+
+# Test Case 10: Incorrect JSON - deeply nested invalid type
+definition3_testcase10 = '''{
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {"NAME": "Company 2", "about": 2}]
+    }
+}'''
+definition3_corrected10 = {
+    "OUTPUT": {
+        "PARAGRAPHS": ["Paragraph 1", "Paragraph 2"],
+        "INFORMATION_AVAILABLE": "1",
+        "ENUM_NUMBER": 100,
+        "COMPANY_STATS": [1, 2, 3],
+        "COMPANY_LIST": [["Client 1"], ["Client 2"]],
+        "COMPANY_NAME": [{"NAME": "Company 1", "about": "Description 1"}, {'NAME': 'Company 2', 'about': '2'}]
+    }
+}
+
+
+def test_validate_json():
+    test_cases = [
+        (definition1,(
+        (definition1_testcase1, definition1_corrected1),
+        )),
+        (definition2,(
+        (definition2_testcase1, definition2_corrected1),
+        (definition2_testcase2, definition2_corrected2)
+        )),
+        (definition3,(
+        (definition3_testcase1, definition3_corrected1),
+        (definition3_testcase2, definition3_corrected2),
+        (definition3_testcase3, definition3_corrected3),
+        (definition3_testcase4, definition3_corrected4),
+        (definition3_testcase5, definition3_corrected5),
+        (definition3_testcase6, definition3_corrected6),
+        (definition3_testcase7, definition3_corrected7),
+        (definition3_testcase8, definition3_corrected8),
+        (definition3_testcase9, definition3_corrected9),
+        (definition3_testcase10, definition3_corrected10)
+        ))
+        ]
+    
+    for i,(definition, def_testcases) in enumerate(test_cases, start=1):
+        for j, (test, corrected) in enumerate(def_testcases, start=1):
+            result = validate_json(test, definition)
+            assert result == corrected, f"Definition {i} Test case {j} failed: {result} != {corrected}"

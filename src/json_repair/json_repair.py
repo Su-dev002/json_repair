@@ -25,6 +25,7 @@ All supported use cases are in the unit tests
 import os
 import json
 from typing import Any, Dict, List, Optional, Union, TextIO, Tuple
+import re
 
 
 class StringFileWrapper:
@@ -64,7 +65,7 @@ class LoggerConfig:
 
 
 JSONReturnType = Union[Dict[str, Any], List[Any], str, float, int, bool, None]
-
+DefinitionType = Dict[str, Union[Dict, List, str] ]
 
 class JSONParser:
     def __init__(
@@ -723,3 +724,264 @@ def from_file(
     fd.close()
 
     return jsonobj
+
+
+def replace_single_quotes(input_str: str):
+    """
+    Replace single quotes separated by any number of spaces with double quotes separated by space.
+
+    Args:
+        input_str (str): The input string to replace quotes in.
+
+    Returns:
+        str: The modified string with double quotes.
+    """
+
+    output_str = re.sub(r"'\s+'", '" "', input_str)
+    return output_str
+
+
+def empty_val(prop_def: DefinitionType) -> Any:
+  """
+    Takes a JSON definition and returns an empty object according to the definition type.
+
+    Args:
+        prop_def (DefinitionType): The JSON definition.
+
+    Returns:
+        Any: An empty object of the type specified in the definition.
+    """
+
+  if prop_def.get('type') == 'string':
+    return ''
+  elif prop_def.get('type') == 'integer':
+    return 0
+  elif prop_def.get('type') == 'array':
+    return []
+  elif prop_def.get('type') == 'object':
+    return {}
+  else:
+    return None
+
+
+def correct_int(value: Any) -> int:
+    """
+    Try to convert other types into an integer if possible.
+
+    Args:
+        value (Any): The value to convert.
+
+    Returns:
+        int: The converted integer value, or None if conversion is not possible.
+    """
+    if isinstance(value, str) and value.isdigit():
+            return int(value)
+    elif isinstance(value, float):
+        return int(value)  # or round(value)
+    elif isinstance(value, bool):
+        return int(value)
+    # if we got a list instead of the int we check all items are of int or not 
+    # if yes we keep the first int 
+    elif isinstance(value, list) and all(isinstance(item, int) for item in value):
+        return value[0]
+
+
+def correct_str(value : Any, is_enum : bool = False) -> str:
+    """
+    Try to convert other types into a string if possible.
+
+    Args:
+        value (Any): The value to convert.
+        is_enum (bool, optional): Whether the value is an enumeration. Defaults to False.
+
+    Returns:
+        str: The converted string value, or None if conversion is not possible.
+    """
+    # if we got a list instead of the string we check all items are of string or not 
+    # if yes we return all string concatenated 
+    # if it was enum we return first string
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        if is_enum:
+            return value[0]
+        else:
+            return ' '.join(value)
+        
+    elif isinstance(value, bool):
+        return str(value)
+    elif isinstance(value, int):
+        return str(value)
+    
+
+def correct_list(value: Any, definition: DefinitionType) -> List:
+    """
+    Try to convert other types into a list if possible.
+
+    Args:
+        value (Any): The value to convert.
+        definition (DefinitionType): The JSON definition of the list.
+
+    Returns:
+        List: The converted list value, or None if conversion is not possible.
+    """
+    
+    item_type = definition['items']
+    if isinstance(value, str):
+        # if an list was expected but we got string, and the string had substrings with some delimiter, 
+        # it can be any delimiters() , then we enclose that string in an list, repair it again
+        # and check type of a new list again
+        new_value = replace_single_quotes(value)
+        corrected_value = repair_json(f"""["{new_value}"]""", return_objects=True)
+        return check_type(corrected_value, definition)
+    else:
+        # if we got a object of any type other than list or string, 
+        # check whether the type of object is same as the type required of items in list
+        # if yes return that object eclosed in string 
+        valid_item = check_type(value, item_type)
+        if valid_item is not None:
+            return [valid_item]
+
+
+def correct_dict(value: Any, definition: DefinitionType) -> Dict:
+    """
+    Attempts to correct a value to a dictionary based on a definition.
+
+    Args:
+        value (Any): The value to correct.
+        definition (DefinitionType): The definition to correct against.
+
+    Returns:
+        Dict: A dictionary if the value can be corrected, otherwise an empty dictionary.
+
+    Notes:
+        If the value is a list, the function will check if all items in the list are dictionaries.
+        If so, it will return the first dictionary in the list, corrected against the definition.
+        If the value is a string or an integer, the function will return an empty dictionary.
+    """
+    if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+            return check_type(value[0], definition)
+    elif isinstance(value, str):
+        return {}
+    elif isinstance(value, int):
+        return {}
+
+
+def check_type(value: Any, definition: DefinitionType) -> Any:
+    """
+    Recursively validates a value against a definition and attempts to correct it if possible.
+
+    Args:
+        value (Any): The value to validate.
+        definition (DefinitionType): The definition to validate against.
+
+    Returns:
+        Any: The validated and corrected value if it matches the definition, or None if it does not.
+
+    Notes:
+        If the value is of a different type but can be converted to the required type, the function will attempt to correct it.
+        If the value is of a different type and cannot be corrected, it will be discarded from its parent object, if the parent object is list. if the parent object is dictionary,
+        then parent object is discarded from its parent.
+        If a dictionary is missing some keys, the function will add the keys with empty values.
+        The function supports recursive validation of objects and arrays.
+    """
+
+
+    expected_type = definition.get('type')
+    enum_values = definition.get('enum')
+
+
+    # we only type check enum , do not check whether value was an valid option or not
+    if enum_values:
+        if expected_type == 'string':
+            if isinstance(value, str):
+                return value
+            else:
+                return correct_str(value, is_enum = True)
+
+        elif expected_type == 'integer':
+            if isinstance(value, int):
+                # if value in enum_values:
+                return value
+            else:
+                return correct_int(value)
+        return None
+
+
+    if expected_type == 'string':
+        if isinstance(value, str):
+            return value
+        else:
+            return correct_str(value)
+        
+
+    elif expected_type == 'integer':
+        if isinstance(value, int):
+            return value
+        else:
+            return correct_int(value)
+        
+
+    elif expected_type == 'array':
+        item_type = definition['items']
+        if isinstance(value, list):
+            # only keep items which matched the definition or were corrected
+            valid_items = [item for item in [check_type(i, item_type) for i in value] if item]
+            return valid_items
+        else:
+            return correct_list(value, definition)
+        
+
+    elif expected_type == 'object':
+        if isinstance(value, dict):
+            properties = definition.get('properties', {})
+            valid_object = {}
+            for key, prop_def in properties.items():
+                if key in value:
+                    valid_value = check_type(value[key], prop_def)
+                    # if any value of dictionary did follow the type or did not get corrected, return empty dictionary 
+                    if valid_value is None:
+                        # print(f"key:{key} does not have an valid value")
+                        return {}
+                    valid_object[key] = valid_value
+                else:
+                    #if any key was not found, we add that key with an empty object of expected type
+                    # print(f"expected key: {key} not found")
+                    valid_object[key] = empty_val(prop_def)
+            return valid_object
+        
+        else:
+            return correct_dict(value, definition)
+
+    return None
+
+
+def validate_json(json_str: str, definition: str = None ) -> Any:
+    """
+    Validates a JSON string against a given definition.
+
+    Args:
+        json_str (str): The JSON string to validate.
+        definition (str, optional): The JSON schema definition to validate against. Defaults to None.
+
+    Returns:
+        Any: The validated JSON data if it matches the definition, or None if it does not.
+
+    Notes:
+        If no definition is provided, the function will simply return the repaired JSON data.
+        If the definition is an object, the function will check that the JSON data matches the object's properties.
+        If the definition is an array, the function will check that each item in the JSON data matches the array's item definition.
+    """
+    output = repair_json(json_str, return_objects=True)
+    if definition:
+        definition_json = json.loads(definition)
+        parameters_def = definition_json[0]["parameters"]
+
+        if parameters_def['type'] == 'object' and "properties" in parameters_def:
+            return check_type(output, parameters_def)
+        elif parameters_def['type'] == 'array':
+            if not isinstance(output, list):
+                return None
+            valid_items = [check_type(item, parameters_def['items']) for item in output]
+            return [item for item in valid_items if item is not None]
+    else:
+        return output
+    return None
